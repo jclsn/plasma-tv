@@ -1,13 +1,14 @@
 # Plasma TV
 
-A fullscreen, remote-controllable TV client for [TVHeadend](https://tvheadend.org),
+A fullscreen, remote-controllable TV client for [TVHeadend](https://tvheadend.org)
+and M3U playlists with an XMLTV guide (e.g. [Dispatcharr](https://github.com/Dispatcharr/Dispatcharr)),
 built with Qt 6, Qt Quick and Kirigami. It follows Plasma theming and uses
 Breeze Dark by default.
 
 * **Live TV**: channel list with logos, the current programme and its progress,
   plus a detail panel with "up next"
 * **TV guide**: timeline EPG grid with genre colours, programme details,
-  scheduling/cancelling recordings
+  scheduling/cancelling recordings (TVHeadend only)
 * **Watching**: zap with up/down, channel list overlay, info bar, audio-track
   and subtitle switching, numeric channel entry; playback stops while the
   window is in the background and resumes when it returns (configurable)
@@ -99,6 +100,26 @@ has no H.264 decoder at all, and weaker boards may stutter on 1080i HD. In that
 case create a transcoding profile in TVHeadend (e.g. H.264 720p) and enter its
 name under *Settings → Streaming profile*.
 
+## M3U + XMLTV (Dispatcharr)
+
+Under *Settings → Source* choose **M3U + XMLTV** and enter the playlist
+address. For Dispatcharr that is `http://<host>:9191/output/m3u`, and the guide
+is `http://<host>:9191/output/epg`. The guide address can be left empty when the
+playlist announces it in its header (`url-tvg` / `x-tvg-url`). Local files
+work too.
+
+* Channels are numbered by `tvg-chno`; a playlist without numbers is numbered
+  in playlist order.
+* Guide entries are matched by `tvg-id`, or else by channel name against the
+  guide's display names. Several channels may share one guide channel.
+* Username and password are optional and sent as HTTP authentication to the
+  playlist's server only, never to a guide or stream on another host. Streams
+  from that server are relayed through `127.0.0.1`, so the password doesn't
+  appear in stream addresses or the player's log.
+* Compressed guides (`.xml.gz`) aren't supported; use the uncompressed address.
+* Recordings and streaming profiles are TVHeadend features and aren't
+  available for M3U sources.
+
 ## Remote control
 
 | Key (remote / keyboard)                | Action                                      |
@@ -147,8 +168,9 @@ was blocked for more than half a second.
 ## Notes
 
 * Streams use a short-lived TVHeadend ticket URL, so the password never ends up
-  in the media URL. Very old servers without ticket support fall back to
-  credentials in the URL.
+  in the media URL. For very old servers without ticket support, and for M3U
+  streams that need a login, the stream is relayed through a local address
+  (`127.0.0.1`) so the media player never sees the credentials.
 * The streaming profile defaults to `pass`. Interlaced DVB channels are shown
   without deinterlacing by Qt Multimedia. A TVHeadend transcoding profile that
   deinterlaces works around that.

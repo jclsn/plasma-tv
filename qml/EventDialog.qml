@@ -26,8 +26,10 @@ FocusScope {
         visible = true;
         if (airing)
             watchButton.forceActiveFocus();
-        else
+        else if (Tvh.canRecord)
             recordButton.forceActiveFocus();
+        else
+            closeButton.forceActiveFocus();
     }
 
     function close() {
@@ -235,6 +237,7 @@ FocusScope {
             }
             TvButton {
                 id: recordButton
+                visible: Tvh.canRecord
                 text: !root.hasRecording ? qsTr("Record") : root.event.dvrState === "recording" ? qsTr("Stop recording") : qsTr("Cancel recording")
                 iconName: root.hasRecording ? "media-playback-stop" : "media-record"
                 destructive: root.hasRecording

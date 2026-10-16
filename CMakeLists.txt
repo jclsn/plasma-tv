@@ -40,6 +40,9 @@ qt_add_qml_module(plasma-tv
         src/networkauth.h src/networkauth.cpp
         src/appsettings.h src/appsettings.cpp
         src/tvhapi.h src/tvhapi.cpp
+        src/m3u.h src/m3u.cpp
+        src/xmltv.h src/xmltv.cpp
+        src/streamproxy.h src/streamproxy.cpp
         src/epgdatabase.h src/epgdatabase.cpp
         src/epgstore.h src/epgstore.cpp
         src/channelmodel.h src/channelmodel.cpp

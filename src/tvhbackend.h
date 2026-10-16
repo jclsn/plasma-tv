@@ -9,6 +9,7 @@
 
 #include "epgdatabase.h"
 #include "epgstore.h"
+#include "xmltv.h"
 
 #include <QDateTime>
 #include <QObject>
@@ -17,12 +18,13 @@
 #include <qqmlregistration.h>
 
 class ChannelModel;
+class StreamProxy;
 class TvhApi;
 class QQmlEngine;
 class QJSEngine;
 
-// Central coordinator: talks to the server, maintains the EPG cache and
-// exposes channels/events to QML.
+// Central coordinator: talks to the server (TVHeadend, or an M3U playlist with
+// an XMLTV guide), maintains the EPG cache and exposes channels/events to QML.
 class TvhBackend : public QObject
 {
     Q_OBJECT
@@ -35,6 +37,8 @@ class TvhBackend : public QObject
     Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
     Q_PROPERTY(QString serverName READ serverName NOTIFY serverInfoChanged)
     Q_PROPERTY(QString serverVersion READ serverVersion NOTIFY serverInfoChanged)
+    // Recordings need TVHeadend; M3U sources only play live.
+    Q_PROPERTY(bool canRecord READ canRecord NOTIFY serverInfoChanged)
     Q_PROPERTY(QDateTime lastUpdate READ lastUpdate NOTIFY epgChanged)
     Q_PROPERTY(int epgRevision READ epgRevision NOTIFY epgChanged)
     Q_PROPERTY(double epgEnd READ epgEnd NOTIFY epgChanged)
@@ -76,6 +80,7 @@ public:
     {
         return m_serverVersion;
     }
+    bool canRecord() const;
     QDateTime lastUpdate() const
     {
         return m_lastUpdate;
@@ -126,6 +131,8 @@ private:
     void applySettings(bool serverChanged);
     void loadCache();
     void fetchChannels(int generation);
+    void fetchPlaylist(int generation);
+    void fetchGuide(int generation, const QUrl &url, const Xmltv::ChannelMap &map);
     void fetchEpgPage(int generation, int offset);
     void finishEpg(int generation);
     void setStatus(Status status, const QString &text);
@@ -134,6 +141,7 @@ private:
 
     TvhApi *m_api;
     ChannelModel *m_channels;
+    StreamProxy *m_streamProxy;
     EpgStore m_store;
     EpgDatabase m_database;
     QVector<EpgEvent> m_incoming;

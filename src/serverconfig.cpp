@@ -4,13 +4,73 @@
 
 #include "serverconfig.h"
 
+namespace
+{
+// Accepts "host:port/path" and local file paths as well as full URLs.
+QUrl sourceUrl(const QString &text)
+{
+    const QString trimmed = text.trimmed();
+    if (trimmed.isEmpty()) {
+        return {};
+    }
+
+    const QUrl url = QUrl::fromUserInput(trimmed);
+    const QString scheme = url.scheme();
+    if (!url.isValid()
+        || (scheme != QLatin1String("http") && scheme != QLatin1String("https")
+            && scheme != QLatin1String("file"))) {
+        return {};
+    }
+
+    return url;
+}
+}
+
+ServerConfig::Backend ServerConfig::backendFromString(const QString &name)
+{
+    return name == QLatin1String("m3u") ? Backend::M3u : Backend::Tvheadend;
+}
+
+QString ServerConfig::backendName(Backend backend)
+{
+    return backend == Backend::M3u ? QStringLiteral("m3u") : QStringLiteral("tvheadend");
+}
+
 bool ServerConfig::isValid() const
 {
+    if (backend == Backend::M3u) {
+        return playlist().isValid();
+    }
+
     return baseUrl().isValid() && !host.trimmed().isEmpty();
+}
+
+QUrl ServerConfig::playlist() const
+{
+    return sourceUrl(playlistUrl);
+}
+
+QUrl ServerConfig::xmltv() const
+{
+    return sourceUrl(xmltvUrl);
 }
 
 QUrl ServerConfig::baseUrl() const
 {
+    if (backend == Backend::M3u) {
+        const QUrl source = playlist();
+        if (!source.isValid()) {
+            return {};
+        }
+
+        QUrl url;
+        url.setScheme(source.scheme());
+        url.setHost(source.host());
+        url.setPort(source.port());
+        url.setPath(QStringLiteral("/"));
+        return url;
+    }
+
     QString hostPart = host.trimmed();
     bool useTls = https;
     int effectivePort = port;
@@ -85,5 +145,10 @@ QUrl ServerConfig::url(const QString &path) const
 
 QString ServerConfig::identity() const
 {
+    if (backend == Backend::M3u) {
+        return QStringLiteral("m3u:") + playlist().toString(QUrl::RemoveUserInfo) + QLatin1Char(' ')
+            + xmltv().toString(QUrl::RemoveUserInfo);
+    }
+
     return baseUrl().toString(QUrl::RemoveUserInfo);
 }

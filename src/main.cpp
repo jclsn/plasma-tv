@@ -29,7 +29,7 @@ int main(int argc, char *argv[])
 
     QCommandLineParser parser;
     parser.setApplicationDescription(
-        QStringLiteral("Fullscreen TVHeadend client for the living room"));
+        QStringLiteral("Fullscreen TVHeadend and M3U/XMLTV client for the living room"));
     parser.addHelpOption();
     parser.addVersionOption();
     QCommandLineOption windowed({QStringLiteral("w"), QStringLiteral("windowed")},

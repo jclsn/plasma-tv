@@ -47,10 +47,20 @@ QString describeError(QNetworkReply *reply, int status)
     }
 
     if (reply->error() == QNetworkReply::ConnectionRefusedError) {
-        return QObject::tr("Connection refused – is TVHeadend running on that port?");
+        return QObject::tr("Connection refused – is the server running on that port?");
     }
 
     return reply->errorString();
+}
+
+// A guide or playlist may live on another host than the server; it never gets the credentials.
+void setCredentials(QNetworkReply *reply, const ServerConfig &config)
+{
+    if (reply->url().host() == config.baseUrl().host()) {
+        NetworkAuth::setReplyCredentials(reply, config.username, config.password);
+    } else {
+        NetworkAuth::setReplyCredentials(reply, {}, {});
+    }
 }
 }
 
@@ -76,8 +86,13 @@ void TvhApi::get(const QString &path, const QUrlQuery &query, Callback callback)
 {
     QUrl url = m_server.url(path);
     url.setQuery(query);
+    get(url, std::move(callback));
+}
+
+void TvhApi::get(const QUrl &url, Callback callback)
+{
     QNetworkReply *reply = m_networkManager->get(makeRequest(url));
-    NetworkAuth::setReplyCredentials(reply, m_server.username, m_server.password);
+    setCredentials(reply, m_server);
     track(reply, std::move(callback));
 }
 
@@ -95,11 +110,16 @@ void TvhApi::post(const QString &path, const QUrlQuery &form, Callback callback)
 
 void TvhApi::probe(const ServerConfig &config, const QString &path, Callback callback)
 {
+    probe(config, config.url(path), std::move(callback));
+}
+
+void TvhApi::probe(const ServerConfig &config, const QUrl &url, Callback callback)
+{
     // A fresh manager so cached credentials/connections of the active server don't interfere.
     auto *networkManager = new QNetworkAccessManager(this);
     NetworkAuth::install(networkManager);
-    QNetworkReply *reply = networkManager->get(makeRequest(config.url(path)));
-    NetworkAuth::setReplyCredentials(reply, config.username, config.password);
+    QNetworkReply *reply = networkManager->get(makeRequest(url));
+    setCredentials(reply, config);
     connect(reply,
             &QNetworkReply::finished,
             this,

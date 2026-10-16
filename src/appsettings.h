@@ -26,11 +26,15 @@ class AppSettings : public QObject
     QML_NAMED_ELEMENT(Settings)
     QML_SINGLETON
 
+    // "tvheadend" or "m3u"
+    Q_PROPERTY(QString backend READ backend NOTIFY changed)
     Q_PROPERTY(QString host READ host NOTIFY changed)
     Q_PROPERTY(int port READ port NOTIFY changed)
     Q_PROPERTY(bool useHttps READ useHttps NOTIFY changed)
     Q_PROPERTY(QString username READ username NOTIFY changed)
     Q_PROPERTY(bool hasPassword READ hasPassword NOTIFY changed)
+    Q_PROPERTY(QString playlistUrl READ playlistUrl NOTIFY changed)
+    Q_PROPERTY(QString xmltvUrl READ xmltvUrl NOTIFY changed)
     Q_PROPERTY(QString streamProfile READ streamProfile NOTIFY changed)
     Q_PROPERTY(int guideDays READ guideDays NOTIFY changed)
     Q_PROPERTY(bool stopInBackground READ stopInBackground NOTIFY changed)
@@ -45,6 +49,10 @@ public:
     static AppSettings *instance();
     static AppSettings *create(QQmlEngine *, QJSEngine *);
 
+    QString backend() const
+    {
+        return ServerConfig::backendName(m_server.backend);
+    }
     QString host() const
     {
         return m_server.host;
@@ -64,6 +72,14 @@ public:
     bool hasPassword() const
     {
         return !m_server.password.isEmpty();
+    }
+    QString playlistUrl() const
+    {
+        return m_server.playlistUrl;
+    }
+    QString xmltvUrl() const
+    {
+        return m_server.xmltvUrl;
     }
     QString streamProfile() const
     {
@@ -114,8 +130,8 @@ public:
         return m_server;
     }
 
-    // Expected keys: host, port, useHttps, username, streamProfile, guideDays, stopInBackground,
-    // colorScheme and, only when the password was edited, password.
+    // Expected keys: backend, host, port, useHttps, playlistUrl, xmltvUrl, username, streamProfile,
+    // guideDays, stopInBackground, colorScheme and, only when the password was edited, password.
     Q_INVOKABLE void save(const QVariantMap &values);
 
 Q_SIGNALS:

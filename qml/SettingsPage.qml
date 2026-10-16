@@ -12,9 +12,13 @@ FocusScope {
     signal editText(string title, string value, string mode, var callback)
 
     // Draft values, committed with "Save"
+    property string dBackend: "tvheadend"
+    readonly property bool m3u: dBackend === "m3u"
     property string dHost
     property int dPort: 9981
     property bool dHttps
+    property string dPlaylist
+    property string dXmltv
     property string dUser
     property var dPassword: null   // null = unchanged
     property string dProfile
@@ -25,10 +29,14 @@ FocusScope {
     property string testMessage
     property bool testOk: false
     property bool testing: false
+    readonly property bool hasSource: m3u ? dPlaylist.length > 0 : dHost.length > 0
 
-    readonly property bool dirty: dHost !== Settings.host || dPort !== Settings.port || dHttps !== Settings.useHttps || dUser !== Settings.username || dPassword !== null || dProfile !== Settings.streamProfile || dDays !== Settings.guideDays || dStopInBackground !== Settings.stopInBackground || dScheme !== Settings.colorScheme
+    readonly property bool dirty: dBackend !== Settings.backend || dPlaylist !== Settings.playlistUrl || dXmltv !== Settings.xmltvUrl || dHost !== Settings.host || dPort !== Settings.port || dHttps !== Settings.useHttps || dUser !== Settings.username || dPassword !== null || dProfile !== Settings.streamProfile || dDays !== Settings.guideDays || dStopInBackground !== Settings.stopInBackground || dScheme !== Settings.colorScheme
 
     function load() {
+        dBackend = Settings.backend;
+        dPlaylist = Settings.playlistUrl;
+        dXmltv = Settings.xmltvUrl;
         dHost = Settings.host;
         dPort = Settings.port;
         dHttps = Settings.useHttps;
@@ -49,6 +57,9 @@ FocusScope {
 
     function values() {
         const v = {
+            backend: dBackend,
+            playlistUrl: dPlaylist,
+            xmltvUrl: dXmltv,
             host: dHost,
             port: dPort,
             useHttps: dHttps,
@@ -118,20 +129,34 @@ FocusScope {
             }
 
             SettingRow {
-                id: hostRow
+                id: sourceRow
                 width: parent.width
                 focus: true
+                kind: "stepper"
+                label: qsTr("Source")
+                value: root.m3u ? qsTr("M3U + XMLTV") : qsTr("TVHeadend")
+                onDecrement: root.dBackend = root.m3u ? "tvheadend" : "m3u"
+                onIncrement: root.dBackend = root.m3u ? "tvheadend" : "m3u"
+                onActivated: root.dBackend = root.m3u ? "tvheadend" : "m3u"
+                KeyNavigation.down: hostRow
+                Keys.onUpPressed: root.exitUp()
+            }
+            SettingRow {
+                id: hostRow
+                width: parent.width
+                visible: !root.m3u
                 label: qsTr("Address")
                 value: root.dHost
                 placeholder: qsTr("e.g. 192.168.1.10")
                 onActivated: root.editText(label, root.dHost, "text", v => root.dHost = v.trim())
+                KeyNavigation.up: sourceRow
                 KeyNavigation.down: portRow
                 KeyNavigation.right: testButton
-                Keys.onUpPressed: root.exitUp()
             }
             SettingRow {
                 id: portRow
                 width: parent.width
+                visible: !root.m3u
                 label: qsTr("Port")
                 value: root.dPort
                 onActivated: root.editText(label, String(root.dPort), "number", v => {
@@ -146,11 +171,36 @@ FocusScope {
             SettingRow {
                 id: httpsRow
                 width: parent.width
+                visible: !root.m3u
                 kind: "toggle"
                 label: qsTr("Use HTTPS")
                 checked: root.dHttps
                 onActivated: root.dHttps = !root.dHttps
                 KeyNavigation.up: portRow
+                KeyNavigation.down: playlistRow
+                KeyNavigation.right: testButton
+            }
+            SettingRow {
+                id: playlistRow
+                width: parent.width
+                visible: root.m3u
+                label: qsTr("Playlist (M3U)")
+                value: root.dPlaylist
+                placeholder: qsTr("e.g. http://192.168.1.10:9191/output/m3u")
+                onActivated: root.editText(label, root.dPlaylist, "text", v => root.dPlaylist = v.trim())
+                KeyNavigation.up: httpsRow
+                KeyNavigation.down: xmltvRow
+                KeyNavigation.right: testButton
+            }
+            SettingRow {
+                id: xmltvRow
+                width: parent.width
+                visible: root.m3u
+                label: qsTr("Guide (XMLTV)")
+                value: root.dXmltv
+                placeholder: qsTr("from the playlist")
+                onActivated: root.editText(label, root.dXmltv, "text", v => root.dXmltv = v.trim())
+                KeyNavigation.up: playlistRow
                 KeyNavigation.down: userRow
                 KeyNavigation.right: testButton
             }
@@ -161,7 +211,7 @@ FocusScope {
                 value: root.dUser
                 placeholder: qsTr("none (anonymous)")
                 onActivated: root.editText(label, root.dUser, "text", v => root.dUser = v.trim())
-                KeyNavigation.up: httpsRow
+                KeyNavigation.up: xmltvRow
                 KeyNavigation.down: passwordRow
                 KeyNavigation.right: testButton
             }
@@ -192,6 +242,7 @@ FocusScope {
             SettingRow {
                 id: profileRow
                 width: parent.width
+                visible: !root.m3u
                 label: qsTr("Streaming profile")
                 value: root.dProfile
                 placeholder: "pass"
@@ -316,13 +367,13 @@ FocusScope {
             width: parent.width
             text: qsTr("Test connection")
             iconName: "network-connect"
-            available: root.dHost.length > 0 && !root.testing
+            available: root.hasSource && !root.testing
             onClicked: {
                 root.testing = true;
                 root.testMessage = "";
                 Tvh.testConnection(root.values());
             }
-            KeyNavigation.left: hostRow
+            KeyNavigation.left: sourceRow
             KeyNavigation.down: saveButton
             Keys.onUpPressed: root.exitUp()
         }
@@ -332,9 +383,9 @@ FocusScope {
             primary: true
             text: root.dirty ? qsTr("Save & connect") : qsTr("Saved")
             iconName: root.dirty ? "document-save" : "dialog-ok"
-            available: root.dirty && root.dHost.length > 0
+            available: root.dirty && root.hasSource
             onClicked: root.save()
-            KeyNavigation.left: hostRow
+            KeyNavigation.left: sourceRow
             KeyNavigation.up: testButton
             KeyNavigation.down: refreshButton
         }
@@ -345,7 +396,7 @@ FocusScope {
             iconName: "view-refresh"
             available: Settings.configured && !Tvh.busy
             onClicked: Tvh.refresh()
-            KeyNavigation.left: hostRow
+            KeyNavigation.left: sourceRow
             KeyNavigation.up: saveButton
             KeyNavigation.down: clearButton
         }
@@ -358,7 +409,7 @@ FocusScope {
                 Tvh.clearCache();
                 Tvh.refresh();
             }
-            KeyNavigation.left: hostRow
+            KeyNavigation.left: sourceRow
             KeyNavigation.up: refreshButton
             KeyNavigation.down: quitButton
         }
@@ -369,7 +420,7 @@ FocusScope {
             text: qsTr("Quit application")
             iconName: "application-exit"
             onClicked: Qt.quit()
-            KeyNavigation.left: hostRow
+            KeyNavigation.left: sourceRow
             KeyNavigation.up: clearButton
         }
 
