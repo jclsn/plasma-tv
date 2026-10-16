@@ -18,6 +18,7 @@ struct Channel {
     int number = 0;
     QString name;
     QString icon; // as reported by the server, may be relative ("imagecache/12")
+    QString stream; // M3U sources only; TVHeadend streams are built from the uuid
 
     static Channel fromJson(const QJsonObject &object);
 };

@@ -12,7 +12,7 @@
 
 namespace
 {
-constexpr int s_schemaVersion = 1;
+constexpr int s_schemaVersion = 2;
 }
 
 EpgDatabase::EpgDatabase()
@@ -49,7 +49,10 @@ bool EpgDatabase::open()
     query.exec(QStringLiteral("PRAGMA synchronous=NORMAL"));
     query.exec(QStringLiteral("PRAGMA user_version"));
     const int version = query.next() ? query.value(0).toInt() : 0;
-    if (version != s_schemaVersion) {
+    if (version == 1) {
+        // Version 2 added the stream URL of M3U channels.
+        query.exec(QStringLiteral("ALTER TABLE channels ADD COLUMN stream TEXT"));
+    } else if (version != s_schemaVersion) {
         query.exec(QStringLiteral("DROP TABLE IF EXISTS channels"));
         query.exec(QStringLiteral("DROP TABLE IF EXISTS events"));
         query.exec(QStringLiteral("DROP TABLE IF EXISTS meta"));
@@ -59,7 +62,7 @@ bool EpgDatabase::open()
         QStringLiteral("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)"),
         QStringLiteral(
             "CREATE TABLE IF NOT EXISTS channels (uuid TEXT PRIMARY KEY, number INTEGER, "
-            "name TEXT, icon TEXT, position INTEGER)"),
+            "name TEXT, icon TEXT, position INTEGER, stream TEXT)"),
         QStringLiteral(
             "CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY, channel TEXT NOT NULL, "
             "start INTEGER NOT NULL, stop INTEGER NOT NULL, title TEXT, subtitle TEXT, summary "
@@ -133,8 +136,9 @@ void EpgDatabase::saveChannels(const QVector<Channel> &channels)
     database.transaction();
     QSqlQuery query(database);
     query.exec(QStringLiteral("DELETE FROM channels"));
-    query.prepare(QStringLiteral(
-        "INSERT INTO channels (uuid, number, name, icon, position) VALUES (?, ?, ?, ?, ?)"));
+    query.prepare(
+        QStringLiteral("INSERT INTO channels (uuid, number, name, icon, position, stream) "
+                       "VALUES (?, ?, ?, ?, ?, ?)"));
 
     for (int i = 0; i < channels.size(); ++i) {
         const Channel &channel = channels.at(i);
@@ -143,6 +147,7 @@ void EpgDatabase::saveChannels(const QVector<Channel> &channels)
         query.addBindValue(channel.name);
         query.addBindValue(channel.icon);
         query.addBindValue(i);
+        query.addBindValue(channel.stream);
         query.exec();
     }
 
@@ -154,8 +159,8 @@ QVector<Channel> EpgDatabase::loadChannels() const
     QVector<Channel> result;
     QSqlQuery query(QSqlDatabase::database(m_connectionName));
 
-    if (!query.exec(
-            QStringLiteral("SELECT uuid, number, name, icon FROM channels ORDER BY position"))) {
+    if (!query.exec(QStringLiteral(
+            "SELECT uuid, number, name, icon, stream FROM channels ORDER BY position"))) {
         return result;
     }
 
@@ -163,7 +168,8 @@ QVector<Channel> EpgDatabase::loadChannels() const
         result.append({query.value(0).toString(),
                        query.value(1).toInt(),
                        query.value(2).toString(),
-                       query.value(3).toString()});
+                       query.value(3).toString(),
+                       query.value(4).toString()});
     }
 
     return result;

@@ -18,7 +18,7 @@ BigscreenUI.Dialog {
     signal watch(string uuid)
 
     width: 933
-    openFocusItem: airing ? watchButton : recordButton
+    openFocusItem: airing ? watchButton : Tvh.canRecord ? recordButton : closeButton
 
     function show(ev) {
         event = ev;
@@ -179,6 +179,7 @@ BigscreenUI.Dialog {
             }
             TvButton {
                 id: recordButton
+                visible: Tvh.canRecord
                 text: !root.hasRecording ? qsTr("Record") : root.event.dvrState === "recording" ? qsTr("Stop recording") : qsTr("Cancel recording")
                 icon.name: root.hasRecording ? "media-playback-stop" : "media-record"
                 onActivated: {
@@ -189,6 +190,7 @@ BigscreenUI.Dialog {
                 }
             }
             TvButton {
+                id: closeButton
                 text: qsTr("Close")
                 icon.name: "dialog-close"
                 onActivated: root.close()

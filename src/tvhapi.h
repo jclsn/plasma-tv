@@ -32,7 +32,8 @@ struct ApiResult {
     }
 };
 
-// Thin asynchronous wrapper around the TVHeadend HTTP API.
+// Thin asynchronous wrapper around the TVHeadend HTTP API; also fetches M3U
+// playlists and XMLTV guides with the same credentials handling.
 class TvhApi : public QObject
 {
     Q_OBJECT
@@ -49,10 +50,12 @@ public:
     }
 
     void get(const QString &path, const QUrlQuery &query, Callback callback);
+    void get(const QUrl &url, Callback callback);
     void post(const QString &path, const QUrlQuery &form, Callback callback);
 
     // One-shot request against an arbitrary configuration (used by "Test connection").
     void probe(const ServerConfig &config, const QString &path, Callback callback);
+    void probe(const ServerConfig &config, const QUrl &url, Callback callback);
 
     // Aborts all pending requests without invoking their callbacks.
     void abortAll();

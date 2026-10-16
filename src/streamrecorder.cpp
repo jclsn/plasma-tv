@@ -6,6 +6,7 @@
 
 #include "appsettings.h"
 #include "networkauth.h"
+#include "tvhbackend.h"
 
 #include <QDateTime>
 #include <QDir>
@@ -16,7 +17,6 @@
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QTimer>
-#include <QUrlQuery>
 
 namespace
 {
@@ -95,14 +95,23 @@ void StreamRecorder::start(const QString &channelUuid, const QString &channelNam
         return;
     }
 
-    const ServerConfig server = AppSettings::instance()->server();
-    QUrl url = server.url(QStringLiteral("stream/channel/") + channelUuid);
-    QUrlQuery query;
-    query.addQueryItem(QStringLiteral("profile"), AppSettings::instance()->streamProfile());
-    url.setQuery(query);
+    const QUrl url = TvhBackend::instance()->streamUrl(channelUuid);
 
+    if (!url.isValid() || url.isEmpty()) {
+        m_file.close();
+        m_file.remove();
+        Q_EMIT failed(tr("There is no stream address for this channel"));
+
+        return;
+    }
+
+    // Like the guide, a stream on another host than the server never gets the credentials.
+    const ServerConfig server = AppSettings::instance()->server();
     m_reply = m_networkManager->get(QNetworkRequest(url));
-    NetworkAuth::setReplyCredentials(m_reply, server.username, server.password);
+
+    if (url.host() == server.baseUrl().host()) {
+        NetworkAuth::setReplyCredentials(m_reply, server.username, server.password);
+    }
 
     QNetworkReply *reply = m_reply;
     connect(reply, &QNetworkReply::readyRead, this, [this, reply]() {

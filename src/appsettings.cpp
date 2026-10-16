@@ -36,10 +36,14 @@ AppSettings::AppSettings(QObject *parent)
 {
     QSettings settings;
     settings.beginGroup(QStringLiteral("server"));
+    m_server.backend =
+        ServerConfig::backendFromString(settings.value(QStringLiteral("backend")).toString());
     m_server.host = settings.value(QStringLiteral("host")).toString();
     m_server.port = settings.value(QStringLiteral("port"), 9981).toInt();
     m_server.https = settings.value(QStringLiteral("https"), false).toBool();
     m_server.username = settings.value(QStringLiteral("username")).toString();
+    m_server.playlistUrl = settings.value(QStringLiteral("playlistUrl")).toString();
+    m_server.xmltvUrl = settings.value(QStringLiteral("xmltvUrl")).toString();
     settings.endGroup();
     m_streamProfile =
         settings.value(QStringLiteral("playback/profile"), QStringLiteral("pass")).toString();
@@ -142,11 +146,17 @@ void AppSettings::save(const QVariantMap &values)
 {
     const ServerConfig previous = m_server;
 
+    m_server.backend = ServerConfig::backendFromString(
+        values.value(QStringLiteral("backend"), backend()).toString());
     m_server.host = values.value(QStringLiteral("host"), m_server.host).toString().trimmed();
     m_server.port = qBound(1, values.value(QStringLiteral("port"), m_server.port).toInt(), 65535);
     m_server.https = values.value(QStringLiteral("useHttps"), m_server.https).toBool();
     m_server.username =
         values.value(QStringLiteral("username"), m_server.username).toString().trimmed();
+    m_server.playlistUrl =
+        values.value(QStringLiteral("playlistUrl"), m_server.playlistUrl).toString().trimmed();
+    m_server.xmltvUrl =
+        values.value(QStringLiteral("xmltvUrl"), m_server.xmltvUrl).toString().trimmed();
 
     if (values.contains(QStringLiteral("password"))) {
         m_server.password = values.value(QStringLiteral("password")).toString();
@@ -170,10 +180,13 @@ void AppSettings::save(const QVariantMap &values)
 
     QSettings settings;
     settings.beginGroup(QStringLiteral("server"));
+    settings.setValue(QStringLiteral("backend"), backend());
     settings.setValue(QStringLiteral("host"), m_server.host);
     settings.setValue(QStringLiteral("port"), m_server.port);
     settings.setValue(QStringLiteral("https"), m_server.https);
     settings.setValue(QStringLiteral("username"), m_server.username);
+    settings.setValue(QStringLiteral("playlistUrl"), m_server.playlistUrl);
+    settings.setValue(QStringLiteral("xmltvUrl"), m_server.xmltvUrl);
     settings.endGroup();
     settings.setValue(QStringLiteral("playback/profile"), m_streamProfile);
     settings.setValue(QStringLiteral("guide/days"), m_guideDays);

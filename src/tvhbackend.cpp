@@ -6,13 +6,17 @@
 
 #include "appsettings.h"
 #include "channelmodel.h"
+#include "m3u.h"
+#include "streamproxy.h"
 #include "tvhapi.h"
 
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QQmlEngine>
+#include <QThread>
 
 #include <algorithm>
+#include <memory>
 
 namespace
 {
@@ -25,6 +29,13 @@ constexpr int s_retryMs = 60 * 1000;
 ServerConfig configFromValues(const QVariantMap &values, const ServerConfig &fallback)
 {
     ServerConfig config = fallback;
+    config.backend = ServerConfig::backendFromString(
+        values.value(QStringLiteral("backend"), ServerConfig::backendName(config.backend))
+            .toString());
+    config.playlistUrl =
+        values.value(QStringLiteral("playlistUrl"), config.playlistUrl).toString().trimmed();
+    config.xmltvUrl =
+        values.value(QStringLiteral("xmltvUrl"), config.xmltvUrl).toString().trimmed();
     config.host = values.value(QStringLiteral("host"), config.host).toString().trimmed();
     config.port = values.value(QStringLiteral("port"), config.port).toInt();
     config.https = values.value(QStringLiteral("useHttps"), config.https).toBool();
@@ -36,6 +47,11 @@ ServerConfig configFromValues(const QVariantMap &values, const ServerConfig &fal
     }
 
     return config;
+}
+
+bool isM3u(const ServerConfig &config)
+{
+    return config.backend == ServerConfig::Backend::M3u;
 }
 
 QJsonArray entriesOf(const QJsonDocument &document)
@@ -71,6 +87,7 @@ TvhBackend::TvhBackend(QObject *parent)
     : QObject(parent)
     , m_api(new TvhApi(this))
     , m_channels(new ChannelModel(&m_store, this))
+    , m_streamProxy(new StreamProxy(this))
 {
     m_database.open();
 
@@ -107,12 +124,20 @@ TvhBackend::TvhBackend(QObject *parent)
     }
 }
 
+bool TvhBackend::canRecord() const
+{
+    return !isM3u(m_api->server());
+}
+
 void TvhBackend::applySettings(bool serverChanged)
 {
     const ServerConfig server = AppSettings::instance()->server();
     if (serverChanged) {
         m_api->setServer(server);
         m_channels->setBaseUrl(server.baseUrl());
+        m_serverName.clear();
+        m_serverVersion.clear();
+        Q_EMIT serverInfoChanged();
 
         if (m_database.serverIdentity() != server.identity()) {
             clearCache();
@@ -167,7 +192,14 @@ void TvhBackend::refresh()
     setBusy(true);
 
     if (m_status != Online) {
-        setStatus(Connecting, tr("Connecting to %1…").arg(settings->server().baseUrl().host()));
+        const QString host = settings->server().baseUrl().host();
+        setStatus(Connecting,
+                  host.isEmpty() ? tr("Loading the playlist…") : tr("Connecting to %1…").arg(host));
+    }
+
+    if (isM3u(settings->server())) {
+        fetchPlaylist(generation);
+        return;
     }
 
     m_api->get(QStringLiteral("api/serverinfo"), {}, [this, generation](const ApiResult &result) {
@@ -243,6 +275,92 @@ void TvhBackend::fetchChannels(int generation)
                    m_incoming.clear();
                    fetchEpgPage(generation, 0);
                });
+}
+
+void TvhBackend::fetchPlaylist(int generation)
+{
+    const ServerConfig server = m_api->server();
+    m_api->get(server.playlist(), [this, generation, server](const ApiResult &result) {
+        if (generation != m_generation) {
+            return;
+        }
+
+        if (!result.ok) {
+            setBusy(false);
+            setStatus(Offline, tr("Loading the playlist failed: %1").arg(result.error));
+            m_retryTimer.start();
+            return;
+        }
+
+        M3u::Playlist playlist = M3u::parse(result.body, server.playlist());
+        if (playlist.channels.isEmpty()) {
+            setBusy(false);
+            setStatus(Offline,
+                      M3u::looksLikePlaylist(result.body)
+                          ? tr("The playlist contains no channels")
+                          : tr("The address does not point to an M3U playlist"));
+            m_retryTimer.start();
+            return;
+        }
+
+        m_serverName = tr("M3U playlist");
+        Q_EMIT serverInfoChanged();
+        m_database.setServerIdentity(server.identity());
+        m_database.saveChannels(playlist.channels);
+        m_channels->setChannels(playlist.channels);
+        setStatus(Online, tr("Connected"));
+        m_epgTimer.start();
+
+        m_incoming.clear();
+        const QUrl guide = server.xmltv().isValid() ? server.xmltv() : playlist.guideUrl;
+        if (!guide.isValid()) {
+            finishEpg(generation); // no guide: channels only
+            return;
+        }
+
+        fetchGuide(generation, guide, playlist.guideMap);
+    });
+}
+
+void TvhBackend::fetchGuide(int generation, const QUrl &url, const Xmltv::ChannelMap &map)
+{
+    m_api->get(url, [this, generation, map](const ApiResult &result) {
+        if (generation != m_generation) {
+            return;
+        }
+
+        if (!result.ok) {
+            setBusy(false);
+            Q_EMIT notification(tr("Loading the TV guide failed: %1").arg(result.error));
+            return;
+        }
+
+        const qint64 now = QDateTime::currentSecsSinceEpoch();
+        const qint64 end = now + qint64(AppSettings::instance()->guideDays()) * 24 * 3600;
+        auto events = std::make_shared<QVector<EpgEvent>>();
+        auto error = std::make_shared<QString>();
+
+        // Guides of large playlists are tens of megabytes; keep the UI responsive.
+        QThread *worker = QThread::create([data = result.body, map, now, end, events, error]() {
+            *events = Xmltv::parse(data, map, now, end, error.get());
+        });
+        connect(worker, &QThread::finished, this, [this, worker, generation, events, error]() {
+            worker->deleteLater();
+            if (generation != m_generation) {
+                return;
+            }
+
+            if (!error->isEmpty()) {
+                setBusy(false);
+                Q_EMIT notification(tr("Loading the TV guide failed: %1").arg(*error));
+                return;
+            }
+
+            m_incoming = std::move(*events);
+            finishEpg(generation);
+        });
+        worker->start();
+    });
 }
 
 void TvhBackend::fetchEpgPage(int generation, int offset)
@@ -324,6 +442,43 @@ void TvhBackend::finishEpg(int generation)
 void TvhBackend::testConnection(const QVariantMap &values)
 {
     const ServerConfig config = configFromValues(values, AppSettings::instance()->server());
+    if (isM3u(config)) {
+        if (!config.playlist().isValid()) {
+            Q_EMIT connectionTestFinished(false, tr("Please enter a playlist address"));
+            return;
+        }
+
+        if (!config.xmltvUrl.isEmpty() && !config.xmltv().isValid()) {
+            Q_EMIT connectionTestFinished(false, tr("The guide address is not valid"));
+            return;
+        }
+
+        m_api->probe(config, config.playlist(), [this, config](const ApiResult &result) {
+            if (!result.ok) {
+                Q_EMIT connectionTestFinished(false, result.error);
+                return;
+            }
+
+            if (!M3u::looksLikePlaylist(result.body)) {
+                Q_EMIT connectionTestFinished(
+                    false,
+                    tr("The server answered, but did not send an M3U playlist"));
+                return;
+            }
+
+            const M3u::Playlist playlist = M3u::parse(result.body, config.playlist());
+            const bool guide = config.xmltv().isValid() || playlist.guideUrl.isValid();
+            Q_EMIT connectionTestFinished(
+                !playlist.channels.isEmpty(),
+                playlist.channels.isEmpty()
+                    ? tr("The playlist contains no channels")
+                    : (guide ? tr("Playlist found: %1 channels").arg(playlist.channels.size())
+                             : tr("Playlist found: %1 channels, but no guide address")
+                                   .arg(playlist.channels.size())));
+        });
+        return;
+    }
+
     if (!config.isValid()) {
         Q_EMIT connectionTestFinished(false, tr("Please enter a server address"));
         return;
@@ -382,15 +537,51 @@ QVariantMap TvhBackend::eventById(double id) const
     return event ? event->toVariant() : QVariantMap();
 }
 
+QUrl TvhBackend::streamUrl(const QString &uuid) const
+{
+    const ServerConfig server = m_api->server();
+
+    if (isM3u(server)) {
+        const int row = m_channels->indexOfUuid(uuid);
+
+        return row >= 0 ? QUrl(m_channels->channels().at(row).stream) : QUrl();
+    }
+
+    QUrlQuery query;
+    query.addQueryItem(QStringLiteral("profile"), AppSettings::instance()->streamProfile());
+    QUrl url = server.url(QStringLiteral("stream/channel/") + uuid);
+    url.setQuery(query);
+
+    return url;
+}
+
 void TvhBackend::requestStream(const QString &uuid)
 {
     const ServerConfig server = m_api->server();
-    const QString profile = AppSettings::instance()->streamProfile();
-    QUrlQuery profileQuery;
-    profileQuery.addQueryItem(QStringLiteral("profile"), profile);
+    if (isM3u(server)) {
+        QUrl url = streamUrl(uuid);
+        if (!url.isValid() || url.isEmpty()) {
+            Q_EMIT streamFailed(uuid, tr("The playlist has no stream address for this channel"));
+            return;
+        }
 
-    QUrl direct = server.url(QStringLiteral("stream/channel/") + uuid);
-    direct.setQuery(profileQuery);
+        // The player can't answer authentication challenges and would log credentials in the
+        // URL, so streams from the playlist's own server go through the local relay.
+        if (!server.username.isEmpty() && url.userName().isEmpty()
+            && url.host() == server.baseUrl().host()) {
+            url = m_streamProxy->relay(url, server);
+            if (url.isEmpty()) {
+                Q_EMIT streamFailed(uuid, tr("The local stream relay could not be started"));
+                return;
+            }
+        }
+
+        Q_EMIT streamReady(uuid, url);
+        return;
+    }
+
+    const QUrl direct = streamUrl(uuid);
+    const QUrlQuery profileQuery(direct);
 
     if (server.username.isEmpty()) {
         Q_EMIT streamReady(uuid, direct);
@@ -432,10 +623,13 @@ void TvhBackend::requestStream(const QString &uuid)
                 return;
             }
 
-            // Older servers without ticket support: fall back to credentials in the URL.
-            QUrl url = direct;
-            url.setUserName(server.username);
-            url.setPassword(server.password);
+            // Older servers without ticket support: relay the stream with our credentials.
+            const QUrl url = m_streamProxy->relay(direct, server);
+            if (url.isEmpty()) {
+                Q_EMIT streamFailed(uuid, tr("The local stream relay could not be started"));
+                return;
+            }
+
             Q_EMIT streamReady(uuid, url);
         });
 }
@@ -443,7 +637,7 @@ void TvhBackend::requestStream(const QString &uuid)
 void TvhBackend::record(double eventId)
 {
     const EpgEvent *event = m_store.byId(qint64(eventId));
-    if (!event) {
+    if (!event || !canRecord()) {
         return;
     }
 
@@ -473,7 +667,7 @@ void TvhBackend::record(double eventId)
 void TvhBackend::cancelRecording(double eventId)
 {
     const EpgEvent *event = m_store.byId(qint64(eventId));
-    if (!event || event->dvrUuid.isEmpty()) {
+    if (!event || event->dvrUuid.isEmpty() || !canRecord()) {
         return;
     }
 

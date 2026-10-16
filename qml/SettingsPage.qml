@@ -15,9 +15,13 @@ FocusScope {
     signal editText(string title, string value, string mode, var callback)
 
     // Draft values, committed with "Save"
+    property string dBackend: "tvheadend"
+    readonly property bool m3u: dBackend === "m3u"
     property string dHost
     property int dPort: 9981
     property bool dHttps
+    property string dPlaylist
+    property string dXmltv
     property string dUser
     property var dPassword: null   // null = unchanged
     property string dProfile
@@ -28,10 +32,14 @@ FocusScope {
     property string testMessage
     property bool testOk: false
     property bool testing: false
+    readonly property bool hasSource: m3u ? dPlaylist.length > 0 : dHost.length > 0
 
-    readonly property bool dirty: dHost !== Settings.host || dPort !== Settings.port || dHttps !== Settings.useHttps || dUser !== Settings.username || dPassword !== null || dProfile !== Settings.streamProfile || dDays !== Settings.guideDays || dStopInBackground !== Settings.stopInBackground || dScheme !== Settings.colorScheme
+    readonly property bool dirty: dBackend !== Settings.backend || dPlaylist !== Settings.playlistUrl || dXmltv !== Settings.xmltvUrl || dHost !== Settings.host || dPort !== Settings.port || dHttps !== Settings.useHttps || dUser !== Settings.username || dPassword !== null || dProfile !== Settings.streamProfile || dDays !== Settings.guideDays || dStopInBackground !== Settings.stopInBackground || dScheme !== Settings.colorScheme
 
     function load() {
+        dBackend = Settings.backend;
+        dPlaylist = Settings.playlistUrl;
+        dXmltv = Settings.xmltvUrl;
         dHost = Settings.host;
         dPort = Settings.port;
         dHttps = Settings.useHttps;
@@ -51,6 +59,9 @@ FocusScope {
 
     function values() {
         const v = {
+            backend: dBackend,
+            playlistUrl: dPlaylist,
+            xmltvUrl: dXmltv,
             host: dHost,
             port: dPort,
             useHttps: dHttps,
@@ -160,21 +171,39 @@ FocusScope {
                     bottomPadding: 5
                 }
 
-                BigscreenUI.ButtonDelegate {
-                    id: hostRow
+                BigscreenUI.ComboBoxDelegate {
+                    id: sourceRow
                     width: parent.width
                     focus: true
-                    text: qsTr("Address")
-                    description: root.dHost.length > 0 ? root.dHost : qsTr("e.g. 192.168.1.10")
-                    trailing: EditIcon {}
-                    onClicked: root.editText(text, root.dHost, "text", v => root.dHost = v.trim())
-                    KeyNavigation.down: portRow
+                    text: qsTr("Source")
+                    model: [qsTr("TVHeadend"), qsTr("M3U + XMLTV")]
+                    currentIndex: root.m3u ? 1 : 0
+
+                    onActivated: index => {
+                        root.dBackend = index === 1 ? "m3u" : "tvheadend";
+                        currentIndex = Qt.binding(() => root.m3u ? 1 : 0);
+                    }
+
+                    KeyNavigation.down: hostRow
                     KeyNavigation.right: testButton
                     Keys.onUpPressed: root.exitUp()
                 }
                 BigscreenUI.ButtonDelegate {
+                    id: hostRow
+                    width: parent.width
+                    visible: !root.m3u
+                    text: qsTr("Address")
+                    description: root.dHost.length > 0 ? root.dHost : qsTr("e.g. 192.168.1.10")
+                    trailing: EditIcon {}
+                    onClicked: root.editText(text, root.dHost, "text", v => root.dHost = v.trim())
+                    KeyNavigation.up: sourceRow
+                    KeyNavigation.down: portRow
+                    KeyNavigation.right: testButton
+                }
+                BigscreenUI.ButtonDelegate {
                     id: portRow
                     width: parent.width
+                    visible: !root.m3u
                     text: qsTr("Port")
                     description: root.dPort
                     trailing: EditIcon {}
@@ -193,6 +222,7 @@ FocusScope {
                 BigscreenUI.SwitchDelegate {
                     id: httpsRow
                     width: parent.width
+                    visible: !root.m3u
                     text: qsTr("Use HTTPS")
                     checked: root.dHttps
 
@@ -202,6 +232,30 @@ FocusScope {
                     }
 
                     KeyNavigation.up: portRow
+                    KeyNavigation.down: playlistRow
+                    KeyNavigation.right: testButton
+                }
+                BigscreenUI.ButtonDelegate {
+                    id: playlistRow
+                    width: parent.width
+                    visible: root.m3u
+                    text: qsTr("Playlist (M3U)")
+                    description: root.dPlaylist.length > 0 ? root.dPlaylist : qsTr("e.g. http://192.168.1.10:9191/output/m3u")
+                    trailing: EditIcon {}
+                    onClicked: root.editText(text, root.dPlaylist, "text", v => root.dPlaylist = v.trim())
+                    KeyNavigation.up: httpsRow
+                    KeyNavigation.down: xmltvRow
+                    KeyNavigation.right: testButton
+                }
+                BigscreenUI.ButtonDelegate {
+                    id: xmltvRow
+                    width: parent.width
+                    visible: root.m3u
+                    text: qsTr("Guide (XMLTV)")
+                    description: root.dXmltv.length > 0 ? root.dXmltv : qsTr("from the playlist")
+                    trailing: EditIcon {}
+                    onClicked: root.editText(text, root.dXmltv, "text", v => root.dXmltv = v.trim())
+                    KeyNavigation.up: playlistRow
                     KeyNavigation.down: userRow
                     KeyNavigation.right: testButton
                 }
@@ -212,7 +266,7 @@ FocusScope {
                     description: root.dUser.length > 0 ? root.dUser : qsTr("none (anonymous)")
                     trailing: EditIcon {}
                     onClicked: root.editText(text, root.dUser, "text", v => root.dUser = v.trim())
-                    KeyNavigation.up: httpsRow
+                    KeyNavigation.up: xmltvRow
                     KeyNavigation.down: passwordRow
                     KeyNavigation.right: testButton
                 }
@@ -243,6 +297,7 @@ FocusScope {
                 BigscreenUI.ButtonDelegate {
                     id: profileRow
                     width: parent.width
+                    visible: !root.m3u
                     text: qsTr("Streaming profile")
                     description: root.dProfile.length > 0 ? root.dProfile : "pass"
                     trailing: EditIcon {}
@@ -403,13 +458,13 @@ FocusScope {
             width: parent.width
             text: qsTr("Test connection")
             icon.name: "network-connect"
-            available: root.dHost.length > 0 && !root.testing
+            available: root.hasSource && !root.testing
             onActivated: {
                 root.testing = true;
                 root.testMessage = "";
                 Tvh.testConnection(root.values());
             }
-            KeyNavigation.left: hostRow
+            KeyNavigation.left: sourceRow
             KeyNavigation.down: saveButton
             Keys.onUpPressed: root.exitUp()
         }
@@ -418,9 +473,9 @@ FocusScope {
             width: parent.width
             text: root.dirty ? qsTr("Save & connect") : qsTr("Saved")
             icon.name: root.dirty ? "document-save" : "dialog-ok"
-            available: root.dirty && root.dHost.length > 0
+            available: root.dirty && root.hasSource
             onActivated: root.save()
-            KeyNavigation.left: hostRow
+            KeyNavigation.left: sourceRow
             KeyNavigation.up: testButton
             KeyNavigation.down: refreshButton
         }
@@ -431,7 +486,7 @@ FocusScope {
             icon.name: "view-refresh"
             available: Settings.configured && !Tvh.busy
             onActivated: Tvh.refresh()
-            KeyNavigation.left: hostRow
+            KeyNavigation.left: sourceRow
             KeyNavigation.up: saveButton
             KeyNavigation.down: clearButton
         }
@@ -444,7 +499,7 @@ FocusScope {
                 Tvh.clearCache();
                 Tvh.refresh();
             }
-            KeyNavigation.left: hostRow
+            KeyNavigation.left: sourceRow
             KeyNavigation.up: refreshButton
             KeyNavigation.down: quitButton
         }
@@ -454,7 +509,7 @@ FocusScope {
             text: qsTr("Quit application")
             icon.name: "application-exit"
             onActivated: Qt.quit()
-            KeyNavigation.left: hostRow
+            KeyNavigation.left: sourceRow
             KeyNavigation.up: clearButton
         }
 
