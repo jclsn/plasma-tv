@@ -1,6 +1,7 @@
 # Plasma TV
 
-A fullscreen, remote-controllable TV client for [TVHeadend](https://tvheadend.org),
+A fullscreen, remote-controllable TV client for [TVHeadend](https://tvheadend.org)
+and M3U playlists with an XMLTV guide (e.g. [Dispatcharr](https://github.com/Dispatcharr/Dispatcharr)),
 built with Qt 6, Qt Quick, Kirigami and
 [Bigscreen UI](https://invent.kde.org/devinlin/bigscreen-ui). It follows Plasma
 theming and uses Breeze Dark by default.
@@ -9,6 +10,7 @@ theming and uses Breeze Dark by default.
 
 * Channel list with logos
 * TV guide
+* TVHeadend or M3U + XMLTV as the source
 * Navigation with TV remote buttons
 
 ## Screenshots
@@ -88,6 +90,13 @@ Plasma Qt Quick Controls style and Breeze (style and color schemes) are used at
 runtime only, so no KF6 `-dev` packages are needed. Bigscreen UI isn't packaged
 by distributions yet: on Arch, use `packaging/arch/bigscreen-ui`; elsewhere,
 build and install it from source (it needs Qt 6.11 or later).
+
+## M3U + XMLTV
+
+Under *Settings → Source* choose **M3U + XMLTV** and enter the playlist
+address, e.g. `http://<host>:9191/output/m3u` for Dispatcharr. The guide address
+can stay empty if the playlist names it in its header. Recordings and streaming
+profiles need TVHeadend.
 
 ## Remote control
 
